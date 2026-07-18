@@ -1,4 +1,4 @@
-"""Fourth development stage of the Stock Price Data Processor."""
+"""Stock Price Data Processor for the IY499 programming assignment."""
 
 import csv
 from datetime import datetime
@@ -22,13 +22,14 @@ REQUIRED_COLUMNS = [
 
 
 def parse_date(date_text):
-    """Convert a YYYY-MM-DD string into a date value."""
+    """Convert YYYY-MM-DD text into a date value."""
     return datetime.strptime(date_text, "%Y-%m-%d").date()
 
 
 def load_stock_data(file_path):
-    """Read stock records from a CSV file and skip invalid rows."""
+    """Read stock records from a CSV file and skip invalid rows safely."""
     records = []
+    skipped_rows = 0
 
     try:
         with file_path.open("r", encoding="utf-8-sig", newline="") as input_file:
@@ -44,36 +45,64 @@ def load_stock_data(file_path):
                     missing_columns.append(column)
 
             if missing_columns:
-                print("Error: Missing columns: " + ", ".join(missing_columns))
+                print("Error: The data file is missing these columns:")
+                print(", ".join(missing_columns))
                 return []
 
             for line_number, row in enumerate(reader, start=2):
                 try:
-                    record = {
-                        "symbol": row["symbol"].strip().upper(),
-                        "company": row["company"].strip(),
-                        "date": parse_date(row["date"].strip()),
-                        "open": float(row["open"]),
-                        "high": float(row["high"]),
-                        "low": float(row["low"]),
-                        "close": float(row["close"]),
-                        "volume": int(row["volume"]),
-                    }
+                    symbol = (row.get("symbol") or "").strip().upper()
+                    company = (row.get("company") or "").strip()
+                    record_date = parse_date((row.get("date") or "").strip())
+                    open_price = float(row["open"])
+                    high_price = float(row["high"])
+                    low_price = float(row["low"])
+                    close_price = float(row["close"])
+                    volume = int(row["volume"])
 
-                    if not record["symbol"] or not record["company"]:
+                    if not symbol or not company:
                         raise ValueError("symbol and company cannot be empty")
 
+                    if min(open_price, high_price, low_price, close_price) <= 0:
+                        raise ValueError("prices must be greater than zero")
+
+                    if high_price < max(open_price, close_price):
+                        raise ValueError("high price is too low")
+
+                    if low_price > min(open_price, close_price):
+                        raise ValueError("low price is too high")
+
+                    if volume < 0:
+                        raise ValueError("volume cannot be negative")
+
+                    record = {
+                        "symbol": symbol,
+                        "company": company,
+                        "date": record_date,
+                        "open": open_price,
+                        "high": high_price,
+                        "low": low_price,
+                        "close": close_price,
+                        "volume": volume,
+                    }
                     records.append(record)
 
-                except (AttributeError, KeyError, TypeError, ValueError) as error:
+                except (TypeError, ValueError, KeyError) as error:
+                    skipped_rows += 1
                     print(f"Warning: Line {line_number} was skipped ({error}).")
 
     except FileNotFoundError:
         print(f"Error: The data file was not found: {file_path}")
+        return []
     except PermissionError:
         print(f"Error: Permission was denied when reading: {file_path}")
+        return []
     except (OSError, csv.Error) as error:
         print(f"Error: The data file could not be read ({error}).")
+        return []
+
+    if skipped_rows > 0:
+        print(f"Skipped invalid rows: {skipped_rows}")
 
     return records
 
@@ -88,37 +117,8 @@ def calculate_percentage_change(record):
     return calculate_price_change(record) / record["open"] * 100
 
 
-def display_records(records):
-    """Show stock records in a readable table."""
-    if not records:
-        print("\nThere are no records to display.")
-        return
-
-    line = "-" * 93
-    print()
-    print(line)
-    print(
-        f"{'Symbol':<8} {'Date':<12} {'Open':>9} {'Close':>9} "
-        f"{'Change':>10} {'Change %':>10} {'Volume':>11}"
-    )
-    print(line)
-
-    for record in records:
-        price_change = calculate_price_change(record)
-        percentage_change = calculate_percentage_change(record)
-        print(
-            f"{record['symbol']:<8} {record['date'].isoformat():<12} "
-            f"{record['open']:>9.2f} {record['close']:>9.2f} "
-            f"{price_change:>+10.2f} {percentage_change:>+9.2f}% "
-            f"{record['volume']:>11,d}"
-        )
-
-    print(line)
-    print(f"Records shown: {len(records)}")
-
-
 def get_company_lookup(records):
-    """Create a dictionary that connects symbols to company names."""
+    """Create a dictionary that connects each symbol to a company name."""
     companies = {}
     for record in records:
         companies[record["symbol"]] = record["company"]
@@ -205,13 +205,42 @@ def filter_stock_records(
 
 
 def display_company_list(records):
-    """Show each available company once."""
-    companies = get_company_lookup(records)
-    symbols = bubble_sort_text(list(companies.keys()))
+    """Show the valid company symbols and names."""
+    company_lookup = get_company_lookup(records)
+    symbols = bubble_sort_text(list(company_lookup.keys()))
 
     print("\nAvailable companies:")
     for symbol in symbols:
-        print(f"  {symbol} - {companies[symbol]}")
+        print(f"  {symbol} - {company_lookup[symbol]}")
+
+
+def display_records(records):
+    """Show stock records in a readable table."""
+    if not records:
+        print("\nThere are no records to display.")
+        return
+
+    line = "-" * 93
+    print()
+    print(line)
+    print(
+        f"{'Symbol':<8} {'Date':<12} {'Open':>9} {'Close':>9} "
+        f"{'Change':>10} {'Change %':>10} {'Volume':>11}"
+    )
+    print(line)
+
+    for record in records:
+        price_change = calculate_price_change(record)
+        percentage_change = calculate_percentage_change(record)
+        print(
+            f"{record['symbol']:<8} {record['date'].isoformat():<12} "
+            f"{record['open']:>9.2f} {record['close']:>9.2f} "
+            f"{price_change:>+10.2f} {percentage_change:>+9.2f}% "
+            f"{record['volume']:>11,d}"
+        )
+
+    print(line)
+    print(f"Records shown: {len(records)}")
 
 
 def get_optional_date(prompt):
@@ -342,7 +371,7 @@ def bubble_sort_records(records, sort_key, descending=False):
 def get_menu_choice(prompt, valid_choices):
     """Ask for one value from a list of valid choices."""
     while True:
-        choice = input(prompt).strip()
+        choice = input(prompt).strip().lower()
         if choice in valid_choices:
             return choice
         print("Invalid choice. Please select one of the listed options.")
@@ -365,7 +394,7 @@ def get_positive_integer(prompt, minimum_value, maximum_value):
 
 
 def ask_for_sort(records):
-    """Ask how to sort the current records."""
+    """Ask how to sort the current results."""
     if not records:
         print("\nThere are no current records to sort.")
         return records
@@ -461,23 +490,100 @@ def create_closing_price_chart(records):
         return None
 
 
+def get_output_filename():
+    """Ask for a safe CSV filename without folders or special characters."""
+    while True:
+        filename = input(
+            "Output filename (press Enter for filtered_results.csv): "
+        ).strip()
+
+        if filename == "":
+            return "filtered_results.csv"
+
+        if not filename.lower().endswith(".csv"):
+            filename += ".csv"
+
+        filename_path = Path(filename)
+        name_without_extension = filename_path.stem
+        valid_characters = all(
+            character.isalnum() or character in "-_"
+            for character in name_without_extension
+        )
+
+        if (
+            filename_path.name == filename
+            and filename_path.suffix.lower() == ".csv"
+            and name_without_extension
+            and valid_characters
+        ):
+            return filename
+
+        print("Use only letters, numbers, hyphens, or underscores in the name.")
+
+
+def save_records_to_csv(records):
+    """Write the current records to a new CSV file."""
+    if not records:
+        print("\nThere are no current records to save.")
+        return None
+
+    filename = get_output_filename()
+
+    try:
+        OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+        output_file = OUTPUT_FOLDER / filename
+
+        with output_file.open("w", encoding="utf-8", newline="") as csv_file:
+            fieldnames = REQUIRED_COLUMNS + [
+                "price_change",
+                "percentage_change",
+            ]
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for record in records:
+                output_record = {
+                    "symbol": record["symbol"],
+                    "company": record["company"],
+                    "date": record["date"].isoformat(),
+                    "open": f"{record['open']:.2f}",
+                    "high": f"{record['high']:.2f}",
+                    "low": f"{record['low']:.2f}",
+                    "close": f"{record['close']:.2f}",
+                    "volume": record["volume"],
+                    "price_change": f"{calculate_price_change(record):.2f}",
+                    "percentage_change": (
+                        f"{calculate_percentage_change(record):.2f}"
+                    ),
+                }
+                writer.writerow(output_record)
+
+        print(f"Records saved to: output/{output_file.name}")
+        return output_file
+
+    except (OSError, PermissionError, csv.Error) as error:
+        print(f"Error: The records could not be saved ({error}).")
+        return None
+
+
 def display_main_menu(current_count, total_count):
-    """Show the available actions in this development stage."""
-    print("\n" + "=" * 50)
+    """Show all available program actions."""
+    print("\n" + "=" * 56)
     print("STOCK PRICE DATA PROCESSOR")
     print(f"Current records: {current_count} of {total_count}")
-    print("=" * 50)
+    print("=" * 56)
     print("1. View current records")
     print("2. Filter records")
     print("3. Sort current records")
     print("4. Show highest or lowest price changes")
     print("5. Create a closing-price text chart")
-    print("6. Reset filters")
-    print("7. Exit")
+    print("6. Save current records to CSV")
+    print("7. Reset filters")
+    print("8. Exit")
 
 
 def main():
-    """Load the data and run the first command-line menu."""
+    """Load the data and run the command-line menu."""
     all_records = load_stock_data(DATA_FILE)
 
     if not all_records:
@@ -489,7 +595,7 @@ def main():
 
     while True:
         display_main_menu(len(current_records), len(all_records))
-        choice = get_menu_choice("Choose an option (1-7): ", list("1234567"))
+        choice = get_menu_choice("Choose an option (1-8): ", list("12345678"))
 
         if choice == "1":
             display_records(current_records)
@@ -503,6 +609,8 @@ def main():
         elif choice == "5":
             create_closing_price_chart(all_records)
         elif choice == "6":
+            save_records_to_csv(current_records)
+        elif choice == "7":
             current_records = all_records.copy()
             print("All filters have been reset.")
         else:
