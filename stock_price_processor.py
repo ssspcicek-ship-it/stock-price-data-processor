@@ -1,4 +1,4 @@
-"""Third development stage of the Stock Price Data Processor."""
+"""Fourth development stage of the Stock Price Data Processor."""
 
 import csv
 from datetime import datetime
@@ -7,6 +7,7 @@ from pathlib import Path
 
 PROJECT_FOLDER = Path(__file__).resolve().parent
 DATA_FILE = PROJECT_FOLDER / "data" / "stock_prices.csv"
+OUTPUT_FOLDER = PROJECT_FOLDER / "output"
 
 REQUIRED_COLUMNS = [
     "symbol",
@@ -243,18 +244,21 @@ def get_optional_price(prompt):
             print("Invalid price. Enter a number or press Enter to skip it.")
 
 
-def get_company_symbol(records):
-    """Ask for an optional valid company symbol."""
+def get_company_symbol(records, allow_blank):
+    """Ask for a valid company symbol."""
     while True:
         symbol = input("Company symbol: ").strip().upper()
 
-        if symbol == "":
+        if symbol == "" and allow_blank:
             return ""
 
         if company_symbol_exists(records, symbol):
             return symbol
 
-        print("Unknown symbol. Enter a listed symbol or press Enter for all.")
+        if allow_blank:
+            print("Unknown symbol. Enter a listed symbol or press Enter for all.")
+        else:
+            print("Unknown symbol. Enter one of the listed symbols.")
 
 
 def ask_for_filters(records):
@@ -262,7 +266,7 @@ def ask_for_filters(records):
     display_company_list(records)
     print("Press Enter to skip any filter.")
 
-    symbol = get_company_symbol(records)
+    symbol = get_company_symbol(records, allow_blank=True)
     start_date = get_optional_date("Start date (YYYY-MM-DD): ")
 
     while True:
@@ -344,6 +348,22 @@ def get_menu_choice(prompt, valid_choices):
         print("Invalid choice. Please select one of the listed options.")
 
 
+def get_positive_integer(prompt, minimum_value, maximum_value):
+    """Ask for an integer inside an accepted range."""
+    while True:
+        number_text = input(prompt).strip()
+        try:
+            number = int(number_text)
+            if minimum_value <= number <= maximum_value:
+                return number
+            print(
+                f"Enter a whole number from {minimum_value} "
+                f"to {maximum_value}."
+            )
+        except ValueError:
+            print("Invalid number. Enter a whole number.")
+
+
 def ask_for_sort(records):
     """Ask how to sort the current records."""
     if not records:
@@ -372,6 +392,75 @@ def ask_for_sort(records):
     return sorted_records
 
 
+def show_largest_changes(records):
+    """Display records with the highest or lowest daily changes."""
+    if not records:
+        print("\nThere are no current records to analyse.")
+        return
+
+    print("\nPrice change analysis:")
+    print("1. Highest percentage changes")
+    print("2. Lowest percentage changes")
+    change_choice = get_menu_choice("Choose 1 or 2: ", ["1", "2"])
+
+    maximum_count = min(10, len(records))
+    count = get_positive_integer(
+        f"How many records should be shown (1-{maximum_count})? ",
+        1,
+        maximum_count,
+    )
+
+    sorted_records = bubble_sort_records(
+        records,
+        "change",
+        descending=(change_choice == "1"),
+    )
+    display_records(sorted_records[:count])
+
+
+def create_closing_price_chart(records):
+    """Create and save a simple text bar chart for one company."""
+    if not records:
+        print("\nThere is no data available for a chart.")
+        return None
+
+    display_company_list(records)
+    symbol = get_company_symbol(records, allow_blank=False)
+    company_records = filter_stock_records(records, symbol=symbol)
+    company_records = bubble_sort_records(company_records, "date")
+
+    maximum_price = max(record["close"] for record in company_records)
+    chart_width = 40
+    company_name = company_records[0]["company"]
+
+    chart_lines = [
+        f"Closing Price Chart: {company_name} ({symbol})",
+        "Each # represents a relative part of the highest closing price.",
+        "",
+    ]
+
+    for record in company_records:
+        bar_length = round(record["close"] / maximum_price * chart_width)
+        bar = "#" * max(1, bar_length)
+        chart_lines.append(
+            f"{record['date'].isoformat()} | {record['close']:>7.2f} | {bar}"
+        )
+
+    chart_text = "\n".join(chart_lines)
+    print()
+    print(chart_text)
+
+    try:
+        OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+        output_file = OUTPUT_FOLDER / f"{symbol}_closing_price_chart.txt"
+        output_file.write_text(chart_text + "\n", encoding="utf-8")
+        print(f"\nChart saved to: output/{output_file.name}")
+        return output_file
+    except (OSError, PermissionError) as error:
+        print(f"\nError: The chart could not be saved ({error}).")
+        return None
+
+
 def display_main_menu(current_count, total_count):
     """Show the available actions in this development stage."""
     print("\n" + "=" * 50)
@@ -381,8 +470,10 @@ def display_main_menu(current_count, total_count):
     print("1. View current records")
     print("2. Filter records")
     print("3. Sort current records")
-    print("4. Reset filters")
-    print("5. Exit")
+    print("4. Show highest or lowest price changes")
+    print("5. Create a closing-price text chart")
+    print("6. Reset filters")
+    print("7. Exit")
 
 
 def main():
@@ -398,7 +489,7 @@ def main():
 
     while True:
         display_main_menu(len(current_records), len(all_records))
-        choice = get_menu_choice("Choose an option (1-5): ", list("12345"))
+        choice = get_menu_choice("Choose an option (1-7): ", list("1234567"))
 
         if choice == "1":
             display_records(current_records)
@@ -408,6 +499,10 @@ def main():
         elif choice == "3":
             current_records = ask_for_sort(current_records)
         elif choice == "4":
+            show_largest_changes(current_records)
+        elif choice == "5":
+            create_closing_price_chart(all_records)
+        elif choice == "6":
             current_records = all_records.copy()
             print("All filters have been reset.")
         else:
