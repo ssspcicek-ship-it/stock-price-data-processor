@@ -1,4 +1,4 @@
-"""Second development stage of the Stock Price Data Processor."""
+"""Third development stage of the Stock Price Data Processor."""
 
 import csv
 from datetime import datetime
@@ -116,12 +116,63 @@ def display_records(records):
     print(f"Records shown: {len(records)}")
 
 
-def company_symbol_exists(records, symbol):
-    """Use linear search to check whether a company symbol exists."""
+def get_company_lookup(records):
+    """Create a dictionary that connects symbols to company names."""
+    companies = {}
     for record in records:
-        if record["symbol"] == symbol:
-            return True
-    return False
+        companies[record["symbol"]] = record["company"]
+    return companies
+
+
+def bubble_sort_text(values):
+    """Return text values in alphabetical order using bubble sort."""
+    sorted_values = values.copy()
+    number_of_values = len(sorted_values)
+
+    for end_position in range(number_of_values - 1, 0, -1):
+        swapped = False
+        for index in range(end_position):
+            if sorted_values[index] > sorted_values[index + 1]:
+                sorted_values[index], sorted_values[index + 1] = (
+                    sorted_values[index + 1],
+                    sorted_values[index],
+                )
+                swapped = True
+
+        if not swapped:
+            break
+
+    return sorted_values
+
+
+def recursive_binary_search(values, target, low_position, high_position):
+    """Find a target in sorted text values by using recursion."""
+    if low_position > high_position:
+        return -1
+
+    middle_position = (low_position + high_position) // 2
+
+    if values[middle_position] == target:
+        return middle_position
+
+    if target < values[middle_position]:
+        return recursive_binary_search(
+            values, target, low_position, middle_position - 1
+        )
+
+    return recursive_binary_search(
+        values, target, middle_position + 1, high_position
+    )
+
+
+def company_symbol_exists(records, symbol):
+    """Check a company symbol with recursive binary search."""
+    company_symbols = list(get_company_lookup(records).keys())
+    company_symbols = bubble_sort_text(company_symbols)
+    position = recursive_binary_search(
+        company_symbols, symbol, 0, len(company_symbols) - 1
+    )
+    return position != -1
 
 
 def filter_stock_records(
@@ -154,12 +205,11 @@ def filter_stock_records(
 
 def display_company_list(records):
     """Show each available company once."""
-    companies = {}
-    for record in records:
-        companies[record["symbol"]] = record["company"]
+    companies = get_company_lookup(records)
+    symbols = bubble_sort_text(list(companies.keys()))
 
     print("\nAvailable companies:")
-    for symbol in companies:
+    for symbol in symbols:
         print(f"  {symbol} - {companies[symbol]}")
 
 
@@ -245,13 +295,81 @@ def ask_for_filters(records):
     )
 
 
-def get_menu_choice():
-    """Ask for one valid main-menu choice."""
+def get_record_sort_value(record, sort_key):
+    """Return the value used to compare two records."""
+    if sort_key == "date":
+        return record["date"]
+    if sort_key == "close":
+        return record["close"]
+    return calculate_percentage_change(record)
+
+
+def bubble_sort_records(records, sort_key, descending=False):
+    """Return stock records ordered with the bubble sort algorithm."""
+    sorted_records = records.copy()
+    number_of_records = len(sorted_records)
+
+    for end_position in range(number_of_records - 1, 0, -1):
+        swapped = False
+
+        for index in range(end_position):
+            left_value = get_record_sort_value(sorted_records[index], sort_key)
+            right_value = get_record_sort_value(
+                sorted_records[index + 1], sort_key
+            )
+
+            wrong_order = left_value > right_value
+            if descending:
+                wrong_order = left_value < right_value
+
+            if wrong_order:
+                sorted_records[index], sorted_records[index + 1] = (
+                    sorted_records[index + 1],
+                    sorted_records[index],
+                )
+                swapped = True
+
+        if not swapped:
+            break
+
+    return sorted_records
+
+
+def get_menu_choice(prompt, valid_choices):
+    """Ask for one value from a list of valid choices."""
     while True:
-        choice = input("Choose an option (1-4): ").strip()
-        if choice in ["1", "2", "3", "4"]:
+        choice = input(prompt).strip()
+        if choice in valid_choices:
             return choice
-        print("Invalid choice. Please enter a number from 1 to 4.")
+        print("Invalid choice. Please select one of the listed options.")
+
+
+def ask_for_sort(records):
+    """Ask how to sort the current records."""
+    if not records:
+        print("\nThere are no current records to sort.")
+        return records
+
+    print("\nSort by:")
+    print("1. Date")
+    print("2. Closing price")
+    print("3. Percentage price change")
+    sort_choice = get_menu_choice("Choose 1-3: ", ["1", "2", "3"])
+
+    sort_keys = {"1": "date", "2": "close", "3": "change"}
+
+    print("\nOrder:")
+    print("1. Lowest to highest")
+    print("2. Highest to lowest")
+    order_choice = get_menu_choice("Choose 1 or 2: ", ["1", "2"])
+
+    sorted_records = bubble_sort_records(
+        records,
+        sort_keys[sort_choice],
+        descending=(order_choice == "2"),
+    )
+    print("The current records have been sorted.")
+    return sorted_records
 
 
 def display_main_menu(current_count, total_count):
@@ -262,8 +380,9 @@ def display_main_menu(current_count, total_count):
     print("=" * 50)
     print("1. View current records")
     print("2. Filter records")
-    print("3. Reset filters")
-    print("4. Exit")
+    print("3. Sort current records")
+    print("4. Reset filters")
+    print("5. Exit")
 
 
 def main():
@@ -279,7 +398,7 @@ def main():
 
     while True:
         display_main_menu(len(current_records), len(all_records))
-        choice = get_menu_choice()
+        choice = get_menu_choice("Choose an option (1-5): ", list("12345"))
 
         if choice == "1":
             display_records(current_records)
@@ -287,6 +406,8 @@ def main():
             current_records = ask_for_filters(all_records)
             print(f"Matching records: {len(current_records)}")
         elif choice == "3":
+            current_records = ask_for_sort(current_records)
+        elif choice == "4":
             current_records = all_records.copy()
             print("All filters have been reset.")
         else:
