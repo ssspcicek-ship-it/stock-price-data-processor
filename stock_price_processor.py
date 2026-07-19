@@ -566,6 +566,196 @@ def save_records_to_csv(records):
         return None
 
 
+def group_records_by_company(records):
+    """Group stock records by symbol in a dictionary of lists."""
+    company_groups = {}
+
+    for record in records:
+        symbol = record["symbol"]
+        if symbol not in company_groups:
+            company_groups[symbol] = []
+        company_groups[symbol].append(record)
+
+    return company_groups
+
+
+def calculate_company_summary(company_records):
+    """Calculate useful performance values for one company."""
+    sorted_records = bubble_sort_records(company_records, "date")
+    first_record = sorted_records[0]
+    last_record = sorted_records[-1]
+
+    closing_price_total = 0
+    total_volume = 0
+    lowest_close = first_record["close"]
+    highest_close = first_record["close"]
+
+    for record in sorted_records:
+        closing_price_total += record["close"]
+        total_volume += record["volume"]
+
+        if record["close"] < lowest_close:
+            lowest_close = record["close"]
+        if record["close"] > highest_close:
+            highest_close = record["close"]
+
+    average_close = closing_price_total / len(sorted_records)
+    overall_change = last_record["close"] - first_record["open"]
+    overall_percentage_change = overall_change / first_record["open"] * 100
+
+    if overall_percentage_change > 0:
+        trend = "Up"
+    elif overall_percentage_change < 0:
+        trend = "Down"
+    else:
+        trend = "Flat"
+
+    return {
+        "symbol": first_record["symbol"],
+        "company": first_record["company"],
+        "record_count": len(sorted_records),
+        "average_close": average_close,
+        "lowest_close": lowest_close,
+        "highest_close": highest_close,
+        "overall_percentage_change": overall_percentage_change,
+        "total_volume": total_volume,
+        "trend": trend,
+    }
+
+
+def get_company_summary_sort_value(summary, sort_key):
+    """Return the selected comparison value from a company summary."""
+    if sort_key == "symbol":
+        return summary["symbol"]
+    if sort_key == "average_close":
+        return summary["average_close"]
+    if sort_key == "total_volume":
+        return summary["total_volume"]
+    return summary["overall_percentage_change"]
+
+
+def bubble_sort_company_summaries(summaries, sort_key, descending=False):
+    """Order company summaries using the bubble sort algorithm."""
+    sorted_summaries = summaries.copy()
+    number_of_summaries = len(sorted_summaries)
+
+    for end_position in range(number_of_summaries - 1, 0, -1):
+        swapped = False
+
+        for index in range(end_position):
+            left_value = get_company_summary_sort_value(
+                sorted_summaries[index], sort_key
+            )
+            right_value = get_company_summary_sort_value(
+                sorted_summaries[index + 1], sort_key
+            )
+
+            wrong_order = left_value > right_value
+            if descending:
+                wrong_order = left_value < right_value
+
+            if wrong_order:
+                sorted_summaries[index], sorted_summaries[index + 1] = (
+                    sorted_summaries[index + 1],
+                    sorted_summaries[index],
+                )
+                swapped = True
+
+        if not swapped:
+            break
+
+    return sorted_summaries
+
+
+def build_company_summary_report(summaries, record_count):
+    """Create a formatted text report from company summaries."""
+    header = (
+        f"{'Symbol':<8} {'Company':<22} {'Records':>7} "
+        f"{'Avg Close':>10} {'Lowest':>9} {'Highest':>9} "
+        f"{'Change %':>10} {'Volume':>12} {'Trend':>7}"
+    )
+    line = "-" * len(header)
+
+    report_lines = [
+        "COMPANY PERFORMANCE SUMMARY",
+        f"Records analysed: {record_count}",
+        f"Companies included: {len(summaries)}",
+        "Overall change compares the first opening price with the last closing price.",
+        "",
+        line,
+        header,
+        line,
+    ]
+
+    for summary in summaries:
+        report_lines.append(
+            f"{summary['symbol']:<8} {summary['company']:<22} "
+            f"{summary['record_count']:>7} "
+            f"{summary['average_close']:>10.2f} "
+            f"{summary['lowest_close']:>9.2f} "
+            f"{summary['highest_close']:>9.2f} "
+            f"{summary['overall_percentage_change']:>+9.2f}% "
+            f"{summary['total_volume']:>12,d} "
+            f"{summary['trend']:>7}"
+        )
+
+    report_lines.append(line)
+    return "\n".join(report_lines)
+
+
+def create_company_performance_report(records):
+    """Display and save a comparison report for the current records."""
+    if not records:
+        print("\nThere are no current records to summarise.")
+        return None
+
+    company_groups = group_records_by_company(records)
+    summaries = []
+
+    for symbol in company_groups:
+        summary = calculate_company_summary(company_groups[symbol])
+        summaries.append(summary)
+
+    print("\nSort the company summary by:")
+    print("1. Company symbol")
+    print("2. Average closing price")
+    print("3. Overall percentage change")
+    print("4. Total trading volume")
+    sort_choice = get_menu_choice("Choose 1-4: ", ["1", "2", "3", "4"])
+
+    sort_keys = {
+        "1": "symbol",
+        "2": "average_close",
+        "3": "change",
+        "4": "total_volume",
+    }
+
+    print("\nOrder:")
+    print("1. Lowest to highest")
+    print("2. Highest to lowest")
+    order_choice = get_menu_choice("Choose 1 or 2: ", ["1", "2"])
+
+    summaries = bubble_sort_company_summaries(
+        summaries,
+        sort_keys[sort_choice],
+        descending=(order_choice == "2"),
+    )
+    report_text = build_company_summary_report(summaries, len(records))
+
+    print()
+    print(report_text)
+
+    try:
+        OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+        output_file = OUTPUT_FOLDER / "company_performance_summary.txt"
+        output_file.write_text(report_text + "\n", encoding="utf-8")
+        print(f"\nSummary saved to: output/{output_file.name}")
+        return output_file
+    except (OSError, PermissionError) as error:
+        print(f"\nError: The summary could not be saved ({error}).")
+        return None
+
+
 def display_main_menu(current_count, total_count):
     """Show all available program actions."""
     print("\n" + "=" * 56)
@@ -578,8 +768,9 @@ def display_main_menu(current_count, total_count):
     print("4. Show highest or lowest price changes")
     print("5. Create a closing-price text chart")
     print("6. Save current records to CSV")
-    print("7. Reset filters")
-    print("8. Exit")
+    print("7. Create a company performance summary")
+    print("8. Reset filters")
+    print("9. Exit")
 
 
 def main():
@@ -595,7 +786,7 @@ def main():
 
     while True:
         display_main_menu(len(current_records), len(all_records))
-        choice = get_menu_choice("Choose an option (1-8): ", list("12345678"))
+        choice = get_menu_choice("Choose an option (1-9): ", list("123456789"))
 
         if choice == "1":
             display_records(current_records)
@@ -611,6 +802,8 @@ def main():
         elif choice == "6":
             save_records_to_csv(current_records)
         elif choice == "7":
+            create_company_performance_report(current_records)
+        elif choice == "8":
             current_records = all_records.copy()
             print("All filters have been reset.")
         else:
